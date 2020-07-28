@@ -47,16 +47,42 @@ func TestInit(t *testing.T) {
 	// write _ = u here to make the compiler happy
 	// You probably want many more tests here.
 
-	// Test get
+	// Test Init existent user
+	u, err = InitUser("alice", "fubar")
+	if err == nil {
+		// t.Error says the test fails
+		t.Error("Able to initialize existent user", err)
+		return
+	}
 
-	// Test non-exist user
+}
+
+func TestGet(t *testing.T) {
+	clear()
+	t.Log("Initialization test")
+
+	someUsefulThings()
+
+	// You can set this to false!
+	userlib.SetDebugStatus(true)
+
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		// t.Error says the test fails
+		t.Error("Failed to initialize user", err)
+		return
+	}
+	// t.Log() only produces output if you run with "go test -v"
+	t.Log("Got user", u)
+
+	// Get non-exist user
 	_, err = GetUser("ABC", "BCA")
 	if err == nil {
 		t.Error("Failed to verify whether user exists")
 		return
 	}
 
-	// Test multiple instances
+	// Get from multiple instances
 	u2, err := GetUser("alice", "fubar")
 	if err != nil {
 		t.Error("Failed to get user", err)
@@ -83,7 +109,6 @@ func TestInit(t *testing.T) {
 		t.Error("Failed to validate user", err)
 		return
 	}
-
 }
 
 func TestStorage(t *testing.T) {
@@ -103,6 +128,45 @@ func TestStorage(t *testing.T) {
 		return
 	}
 	if !reflect.DeepEqual(v, v2) {
+		t.Error("Downloaded file is not the same", v, v2)
+		return
+	}
+}
+
+func TestMultipleInstancesStorage(t *testing.T) {
+	clear()
+	u1, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	u2, err := GetUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	v := []byte("This is a test")
+	u1.StoreFile("file1", v)
+
+	v2, err := u2.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to upload and download", err)
+		return
+	}
+	if !reflect.DeepEqual(v, v2) {
+		t.Error("Downloaded file is not the same", v, v2)
+		return
+	}
+
+	u1.AppendFile("file1", []byte("hello world"))
+	v2, err = u2.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to upload and download", err)
+		return
+	}
+	if !reflect.DeepEqual(v2, []byte("This is a testhello world")) {
 		t.Error("Downloaded file is not the same", v, v2)
 		return
 	}

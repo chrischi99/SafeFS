@@ -242,10 +242,6 @@ func (userdata *User) getUserMetadata() (um *DatastoreUser, err error) {
 func (userdata *User) putUserMetadata(um *DatastoreUser) {
 	UUID, _ := uuid.FromBytes(getPurpose(userdata.Username + UUID_USERMETADATA))
 	plaintext, _ := json.Marshal(um)
-
-	var x DatastoreUser
-	json.Unmarshal(plaintext, &x)
-
 	putSymData(UUID, userdata.Sk, USERMETADATA_ENC_PURPOSE, USERMETADATA_MAC_PURPOSE, plaintext)
 }
 
