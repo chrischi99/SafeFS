@@ -236,8 +236,10 @@ func getSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string,
 		encKey, macKey = getSymKeys(sk, encPurpose, macPurpose)
 	}
 	// verify
+	userlib.DebugMsg("verify inte, mackey: %v", macKey)
 	if verifyMac(macKey[:16], _obj.Ciphertext, _obj.Verifytext) == false {
-		return nil, errors.New("Verify integrity failed")
+		userlib.DebugMsg("verify inte failed, mackey: %v", macKey)
+		return nil, errors.New("Verify integrity failed, use sk: ")
 	}
 	// decrypt
 	plaintext = userlib.SymDec(encKey, _obj.Ciphertext)
@@ -248,7 +250,7 @@ func putSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string,
 	var _obj DataDS
 	encKey, macKey := getSymKeys(sk, encPurpose, macPurpose)
 	// userlib.DebugMsg("putsymdata: encp %v\nmacp %v", encPurpose, macPurpose)
-	// userlib.DebugMsg("putsymdata: encp %v\nmacp %v", encKey, macKey)
+	userlib.DebugMsg("putsymdata: macK %v", macKey)
 	ciphertext := userlib.SymEnc(encKey, userlib.RandomBytes(userlib.AESBlockSize), plaintext)
 	verifytext, _ := userlib.HMACEval(macKey, ciphertext)
 	_obj.Ciphertext = ciphertext
@@ -315,7 +317,6 @@ func (userdata *User) getRecordBook(UUID uuid.UUID, purpose []byte, sk []byte, s
 	if !shared {
 		sk, _ = userlib.HashKDF(userdata.Sk[:16], purpose)
 	}
-	userlib.DebugMsg("getrecordbook: sk: %v\nuuid: %v", sk, UUID)
 	plaintext, e := getSymData(UUID, sk[:16], RECORD_BOOK_ENC_PURPOSE, RECORD_BOOK_MAC_PURPOSE, nil, nil, false)
 	if e != nil {
 		return nil, e
@@ -327,9 +328,9 @@ func (userdata *User) getRecordBook(UUID uuid.UUID, purpose []byte, sk []byte, s
 func (userdata *User) putRecordBook(UUID uuid.UUID, purpose []byte, rb *RecordBook, sk []byte, shared bool) {
 	plaintext, _ := json.Marshal(rb)
 	if !shared {
-		sk, _ = userlib.HashKDF(userdata.Sk[:16], []byte(purpose))
+		sk, _ = userlib.HashKDF(userdata.Sk[:16], purpose)
 	}
-	userlib.DebugMsg("putrecordbook: sk: %v\nuuid: %v", sk, UUID)
+	userlib.DebugMsg("putrecordbook: purpose: %v uuid: %v", purpose, UUID)
 	putSymData(UUID, sk, RECORD_BOOK_ENC_PURPOSE, RECORD_BOOK_MAC_PURPOSE, plaintext)
 }
 
@@ -516,9 +517,9 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		if secrecyUUID, ok = um.SharedFileSecrecyUUIDs[filek]; !ok {
 			return errors.New("File does not exist")
 		}
-		userlib.DebugMsg("AppendFile: Get shared file, %v", purpose)
 		keyPair := um.SharedFileSecrecyKeypairs[filek]
 		ks, e := userdata.getFileSecrecy(secrecyUUID, "", "", keyPair, true)
+		userlib.DebugMsg("appendfile->shared file: enck: %v, deck: %v", keyPair[0], keyPair[1])
 		rbUUID = ks.UUID
 		if e != nil {
 			return e
@@ -567,17 +568,14 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		}
 		userlib.DebugMsg("Get shared file, %v", purpose)
 		keyPair := um.SharedFileSecrecyKeypairs[filek]
-		userlib.DebugMsg("loadfile sharing: uuid %v", secrecyUUID)
-		userlib.DebugMsg("loadfile sharing: enck %v\nmack %v", keyPair[0], keyPair[1])
 		ks, e := userdata.getFileSecrecy(secrecyUUID, "", "", keyPair, true)
 		if e != nil {
 			return nil, errors.New("Load File: get File Secrecy" + e.Error())
 		}
-		userlib.DebugMsg("getrecordbook")
+		userlib.DebugMsg("> Loadfile call getrecordbook, uuid: %v, sk: %v", ks.UUID, ks.SK)
 		if rb, e = userdata.getRecordBook(ks.UUID, nil, ks.SK, true); e != nil {
 			return nil, e
 		}
-		userlib.DebugMsg("getrecordbook finish")
 		sk = ks.SK
 		shared = true
 	} else {
@@ -585,6 +583,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		if e != nil {
 			return nil, errors.New("> getFileMetadata " + e.Error())
 		}
+		userlib.DebugMsg("> revokefile call getrecordbook: purpose: %v uuid: %v", purpose, fm.RecordUUID)
 		rb, e = userdata.getRecordBook(fm.RecordUUID, purpose, nil, false)
 		if e != nil {
 			return nil, errors.New("> getRecordBook " + e.Error())
@@ -717,8 +716,8 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 // Removes target user's access.
 func (userdata *User) RevokeFile(filename string, target_username string) (err error) {
 	var newPurpose = userlib.RandomBytes(PURPOSE_LEN)
-	newSk, _ := userlib.HashKDF(userdata.Sk, newPurpose)
-	var newFileUUID = uuid.New()
+	newSk, _ := userlib.HashKDF(userdata.Sk[:16], newPurpose)
+	var newRBUUID = uuid.New()
 	// check ownership
 	um, e := userdata.getUserMetadata()
 	if e != nil {
@@ -741,21 +740,32 @@ func (userdata *User) RevokeFile(filename string, target_username string) (err e
 	// user metadata
 	um.OwnedFilePurpose[mapKey(filename)] = newPurpose
 	// file metadata
-	fm.RecordUUID = newFileUUID
+	fm.RecordUUID = newRBUUID
 	delete(fm.SharedUser, target_username)
 	userdata.putFileMetadata(filename, fm)
 	// record book
 	rb := RecordBook{make([]uuid.UUID, 0)}
-	rb.Records = append(rb.Records, newFileUUID)
+	rb.Records = append(rb.Records, uuid.New())
 	userdata.putUserMetadata(um)
 	userdata.putFileMetadata(filename, fm)
+	userlib.DebugMsg("======================================")
 	userdata.putRecordBook(fm.RecordUUID, newPurpose, &rb, nil, false)
+
+	rb2, e := userdata.getRecordBook(fm.RecordUUID, newPurpose, nil, false)
+	if e != nil {
+		userlib.DebugMsg("Failed to get record book" + e.Error())
+		return
+	}
+	userlib.DebugMsg("> rb[0]: %v", rb2.Records[0])
+	userlib.DebugMsg("======================================")
+
+	// test！！！！！！
 	userdata.putFilePart(rb.Records[0], newPurpose, 0, f, nil, false)
 	// update other shared user's secrecy
 	for username, UUID := range fm.SharedUser {
 		var keySecrecy KeySecrecy
 		keySecrecy.SK = newSk
-		keySecrecy.UUID = newFileUUID
+		keySecrecy.UUID = newRBUUID
 		userdata.putFileSecrecy(UUID, filename, username, &keySecrecy)
 	}
 	return
