@@ -160,14 +160,23 @@ func TestMultipleInstancesStorage(t *testing.T) {
 		return
 	}
 
-	u1.AppendFile("file1", []byte("hello world"))
+	err = u1.AppendFile("file1", []byte("hello world"))
+	if err != nil {
+		t.Error("Append failed", err)
+		return
+	}
+	v3, err := u1.LoadFile("file1")
+	if !reflect.DeepEqual(v3, []byte("This is a testhello world")) {
+		t.Error("Downloaded file is not the same, append failed", string(v), string(v2))
+		return
+	}
 	v2, err = u2.LoadFile("file1")
 	if err != nil {
 		t.Error("Failed to upload and download", err)
 		return
 	}
 	if !reflect.DeepEqual(v2, []byte("This is a testhello world")) {
-		t.Error("Downloaded file is not the same", v, v2)
+		t.Error("Downloaded file is not the same", string(v), string(v2))
 		return
 	}
 }
@@ -189,6 +198,7 @@ func TestInvalidFile(t *testing.T) {
 
 func TestShare(t *testing.T) {
 	clear()
+	userlib.SetDebugStatus(true)
 	u, err := InitUser("alice", "fubar")
 	if err != nil {
 		t.Error("Failed to initialize user", err)
