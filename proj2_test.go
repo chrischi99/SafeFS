@@ -356,3 +356,219 @@ func TestRevoke(t *testing.T) {
 	}
 
 }
+func TestShareHierarchy(t *testing.T) {
+	clear()
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+	u2, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+	u3, err2 := InitUser("charles", "foodbar")
+	if err2 != nil {
+		t.Error("Failed to initialize charles", err2)
+		return
+	}
+
+	v := []byte("This is a test")
+	u.StoreFile("file1", v)
+
+	var v2 []byte
+	var v3 []byte
+	var magic_string string
+
+	v, err = u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to download the file from alice", err)
+		return
+	}
+
+	magic_string, err = u.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	err = u2.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+
+	v2, err = u2.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+		return
+	}
+	if !reflect.DeepEqual(v, v2) {
+		t.Error("Shared file is not the same", v, v2)
+		return
+	}
+
+	magic_string, err = u2.ShareFile("file2", "charles")
+	if err != nil {
+		t.Error("Failed to share the a file w/ charles", err)
+		return
+	}
+	err = u3.ReceiveFile("file3", "bob", magic_string)
+	if err != nil {
+		t.Error("charles failed to receive the share message", err)
+		return
+	}
+
+	v3, err = u3.LoadFile("file3")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+		return
+	}
+	if !reflect.DeepEqual(v, v3) || !reflect.DeepEqual(v2, v3) {
+		t.Error("Shared file is not the same", v, v3)
+		return
+	}
+}
+
+func TestShareHierarchyAppend(t *testing.T) {
+	clear()
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+	u2, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+	u3, err2 := InitUser("charles", "foodbar")
+	if err2 != nil {
+		t.Error("Failed to initialize charles", err2)
+		return
+	}
+
+	v := []byte("This is a test")
+	u.StoreFile("file1", v)
+
+	var v2 []byte
+	//var v3 []byte
+	var magic_string string
+
+	v, err = u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to download the file from alice", err)
+		return
+	}
+
+	magic_string, err = u.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	err = u2.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+
+	vAp1 := []byte(" olala")
+	err = u2.AppendFile("file2", vAp1)
+	if err != nil {
+		t.Error("Failed to append to file2", err)
+		return
+	}
+
+	v2, err = u2.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+		return
+	}
+	if !reflect.DeepEqual(append(v, vAp1...), v2) {
+		t.Error("Shared file is not the same", string(append(v, vAp1...)), string(v2))
+		return
+	}
+
+	magic_string, err = u2.ShareFile("file2", "charles")
+	if err != nil {
+		t.Error("Failed to share the a file w/ charles", err)
+		return
+	}
+	err = u3.ReceiveFile("file3", "bob", magic_string)
+	if err != nil {
+		t.Error("charles failed to receive the share message", err)
+		return
+	}
+}
+
+func TestShareHierarchyStore(t *testing.T) {
+	clear()
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+	u2, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+	u3, err2 := InitUser("charles", "foodbar")
+	if err2 != nil {
+		t.Error("Failed to initialize charles", err2)
+		return
+	}
+
+	v := []byte("This is a test")
+	u.StoreFile("file1", v)
+
+	var v2 []byte
+	//var v3 []byte
+	var magic_string string
+
+	v, err = u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to download the file from alice", err)
+		return
+	}
+
+	magic_string, err = u.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	err = u2.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+
+	vS1 := []byte("bb")
+	u2.StoreFile("file2", vS1)
+
+	v, err = u.LoadFile("file1")
+	v2, err = u2.LoadFile("file2")
+	if !reflect.DeepEqual(v, v2) {
+		t.Error("Shared file is not the same", string(v), string(v2))
+		return
+	}
+
+	magic_string, err = u2.ShareFile("file2", "charles")
+	if err != nil {
+		t.Error("Failed to share the a file w/ charles", err)
+		return
+	}
+	err = u3.ReceiveFile("file3", "bob", magic_string)
+	if err != nil {
+		t.Error("charles failed to receive the share message", err)
+		return
+	}
+
+	v, err = u.LoadFile("file1")
+	v2, err = u2.LoadFile("file2")
+	v3, err := u3.LoadFile("file3")
+	if !reflect.DeepEqual(v, v2) || !reflect.DeepEqual(v3, v2) {
+		t.Error("Shared file is not the same", string(v), string(v3))
+		return
+	}
+}
