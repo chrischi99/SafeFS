@@ -229,7 +229,7 @@ func getSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string,
 	var _obj DataDS
 	obj, ok := userlib.DatastoreGet(UUID)
 	if !ok {
-		return nil, errors.New("Metadata not found")
+		return nil, errors.New("object not found")
 	}
 	json.Unmarshal(obj, &_obj)
 	if !shared {
@@ -449,6 +449,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// update
 	purpose, ok := um.OwnedFilePurpose[mapKey(filename)]
 	var datastoreFile *DatastoreFile
+	var rbUUID uuid.UUID
 	var rb *RecordBook
 	var shared bool
 	sk := make([]byte, 0)
@@ -461,6 +462,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		if rb, e = userdata.getRecordBook(datastoreFile.RecordUUID, purpose, nil, false); e != nil {
 			return
 		}
+		rbUUID = datastoreFile.RecordUUID
 	}
 	if secrecyUUID, ok := um.SharedFileSecrecyUUIDs[mapKey(filename)]; ok {
 		keyPair := um.SharedFileSecrecyKeypairs[filek]
@@ -472,6 +474,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 			return
 		}
 		sk = ks.SK
+		rbUUID = ks.UUID
 		shared = true
 	} else {
 		// file doesn't exist, we need to modify user_metadata(purpose), file_metadata(), record_book, file_part0
@@ -486,10 +489,12 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		// initialize record book
 		_recordBook := RecordBook{make([]uuid.UUID, 0)}
 		rb = &_recordBook
+		rbUUID = datastoreFile.RecordUUID
 	}
 	// both need to modify record_book and file_part
+	rb.Records = make([]uuid.UUID, 0)
 	rb.Records = append(rb.Records, uuid.New())
-	userdata.putRecordBook(datastoreFile.RecordUUID, purpose, rb, sk, shared)
+	userdata.putRecordBook(rbUUID, purpose, rb, sk, shared)
 	userdata.putFilePart(rb.Records[len(rb.Records)-1], purpose, len(rb.Records)-1, data, sk, shared)
 	return
 }
@@ -519,6 +524,10 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		}
 		keyPair := um.SharedFileSecrecyKeypairs[filek]
 		ks, e := userdata.getFileSecrecy(secrecyUUID, "", "", keyPair, true)
+		if e != nil {
+			userlib.DebugMsg("Appendfile shared secrecy not found")
+			return
+		}
 		userlib.DebugMsg("appendfile->shared file: enck: %v, deck: %v", keyPair[0], keyPair[1])
 		rbUUID = ks.UUID
 		if e != nil {
@@ -566,11 +575,13 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		if secrecyUUID, ok = um.SharedFileSecrecyUUIDs[filek]; !ok {
 			return nil, errors.New("File does not exist")
 		}
-		userlib.DebugMsg("Get shared file, %v", purpose)
-		keyPair := um.SharedFileSecrecyKeypairs[filek]
+		keyPair, ok := um.SharedFileSecrecyKeypairs[filek]
+		if !ok {
+			return nil, errors.New("Load after share: Fail to get from map")
+		}
 		ks, e := userdata.getFileSecrecy(secrecyUUID, "", "", keyPair, true)
 		if e != nil {
-			return nil, errors.New("Load File: get File Secrecy" + e.Error())
+			return nil, errors.New("Load File: get File Secrecy " + e.Error())
 		}
 		userlib.DebugMsg("> Loadfile call getrecordbook, uuid: %v, sk: %v", ks.UUID, ks.SK)
 		if rb, e = userdata.getRecordBook(ks.UUID, nil, ks.SK, true); e != nil {
@@ -653,8 +664,9 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 		at.SecrecyDecKey = at.SecrecyDecKey[:16]
 		at.SecrecyMacKey = at.SecrecyMacKey[:16]
 	}
-	_at := at.UUID.String() + " " + string(at.SecrecyDecKey[:]) + " " + string(at.SecrecyMacKey[:])
-	// userlib.DebugMsg("uuid string: %v\n%v", at.UUID.String(), at.UUID)
+	userlib.DebugMsg("> sharefile: secrecy uuid: %v, len: %v", at.UUID, len(at.UUID.String()))
+	_at := at.UUID.String() + string(at.SecrecyDecKey[:]) + string(at.SecrecyMacKey[:])
+	userlib.DebugMsg("uuid string: %v", _at)
 	if encPk, ok = userlib.KeystoreGet(recipient + AT_ENC_K); !ok {
 		return "", errors.New("Failed to get recipient's enc Pk")
 	}
@@ -694,10 +706,11 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	}
 	_at, _ := userlib.PKEDec(um.ATokenDecSk, msg.Ciphertext)
 	s := string(_at[:])
-	ss := strings.Split(s, " ")
-	at.UUID, _ = uuid.Parse(ss[0])
-	at.SecrecyDecKey = []byte(ss[1])
-	at.SecrecyMacKey = []byte(ss[2])
+	at.UUID, _ = uuid.Parse(s[:36])
+	at.SecrecyDecKey = []byte(s[36:52])
+	at.SecrecyMacKey = []byte(s[52:68])
+	userlib.DebugMsg("> Receive data: shared key secrecy: %v", string(_at))
+	userlib.DebugMsg("> Receive data: key secrecy uuid: %v", at.UUID.String())
 	// update user metadata
 	filek := mapKey(filename)
 	if _, ok := um.OwnedFilePurpose[filek]; ok {

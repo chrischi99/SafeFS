@@ -271,6 +271,18 @@ func TestShare(t *testing.T) {
 		return
 	}
 
+	u2.StoreFile("file2", []byte("ABC"))
+	v, err = u.LoadFile("file1")
+	if !reflect.DeepEqual(v, []byte("ABC")) {
+		t.Error("Shared file is not the same", "ABC", string(v))
+		return
+	}
+	v2, err = u2.LoadFile("file2")
+	if !reflect.DeepEqual(v2, []byte("ABC")) {
+		t.Error("Shared file is not the same", []byte("ABC"), v2)
+		return
+	}
+
 }
 
 func TestRevoke(t *testing.T) {
