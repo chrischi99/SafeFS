@@ -76,12 +76,12 @@ func someUsefulThings() {
 
 // Helper function: Takes the first 16 bytes and
 // converts it into the UUID type
-func bytesToUUID(data []byte) (ret uuid.UUID) {
-	for x := range ret {
-		ret[x] = data[x]
-	}
-	return
-}
+// func bytesToUUID(data []byte) (ret uuid.UUID) {
+// 	for x := range ret {
+// 		ret[x] = data[x]
+// 	}
+// 	return
+// }
 
 // The structure definition for a user record
 type User struct {
@@ -192,11 +192,16 @@ func mapKey(name string) (s string) {
 // public encryption/verification
 func putUserVerification(username string, signk userlib.DSSignKey, uv *UserVerification) {
 	UUID, _ := uuid.FromBytes(getPurpose(username + UUID_PASSWD))
-	plaintext, _ := json.Marshal(uv)
+	plaintext, e := json.Marshal(uv)
+	if e != nil {
+		return
+	}
 	verifytext, _ := userlib.DSSign(signk, plaintext)
 	_obj := DataDS{plaintext, verifytext}
-	obj, _ := json.Marshal(&_obj)
-
+	obj, e := json.Marshal(&_obj)
+	if e != nil {
+		return
+	}
 	userlib.DatastoreSet(UUID, obj)
 }
 
@@ -210,12 +215,16 @@ func getUserVerification(username string) (uv *UserVerification, err error) {
 	if !ok || !verifyKeyExist {
 		return nil, errors.New("> user verification not found")
 	}
-	json.Unmarshal(obj, &_obj)
+	if e := json.Unmarshal(obj, &_obj); e != nil {
+		return nil, e
+	}
 	// interity verify
 	if userlib.DSVerify(pwVerifyKey, _obj.Ciphertext, _obj.Verifytext) != nil {
 		return nil, errors.New("> user verification integrity verification failed")
 	}
-	json.Unmarshal(_obj.Ciphertext, uv)
+	if e := json.Unmarshal(_obj.Ciphertext, uv); e != nil {
+		return nil, e
+	}
 	return
 }
 
@@ -231,14 +240,15 @@ func getSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string,
 	if !ok {
 		return nil, errors.New("object not found")
 	}
-	json.Unmarshal(obj, &_obj)
+	if e := json.Unmarshal(obj, &_obj); e != nil {
+		return nil, e
+	}
 	if !shared {
 		encKey, macKey = getSymKeys(sk, encPurpose, macPurpose)
 	}
 	// verify
 	userlib.DebugMsg("verify inte, mackey: %v", macKey)
 	if verifyMac(macKey[:16], _obj.Ciphertext, _obj.Verifytext) == false {
-		userlib.DebugMsg("verify inte failed, mackey: %v", macKey)
 		return nil, errors.New("Verify integrity failed, use sk: ")
 	}
 	// decrypt
@@ -249,13 +259,14 @@ func getSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string,
 func putSymData(UUID uuid.UUID, sk []byte, encPurpose string, macPurpose string, plaintext []byte) {
 	var _obj DataDS
 	encKey, macKey := getSymKeys(sk, encPurpose, macPurpose)
-	// userlib.DebugMsg("putsymdata: encp %v\nmacp %v", encPurpose, macPurpose)
-	userlib.DebugMsg("putsymdata: macK %v", macKey)
 	ciphertext := userlib.SymEnc(encKey, userlib.RandomBytes(userlib.AESBlockSize), plaintext)
 	verifytext, _ := userlib.HMACEval(macKey, ciphertext)
 	_obj.Ciphertext = ciphertext
 	_obj.Verifytext = verifytext
-	obj, _ := json.Marshal(&_obj)
+	obj, e := json.Marshal(&_obj)
+	if e != nil {
+		return
+	}
 	userlib.DatastoreSet(UUID, obj)
 }
 
@@ -267,13 +278,19 @@ func (userdata *User) getUserMetadata() (um *DatastoreUser, err error) {
 	if e != nil {
 		return nil, e
 	}
-	json.Unmarshal(plaintext, um)
+	e = json.Unmarshal(plaintext, um)
+	if e != nil {
+		return nil, e
+	}
 	return
 }
 
 func (userdata *User) putUserMetadata(um *DatastoreUser) {
 	UUID, _ := uuid.FromBytes(getPurpose(userdata.Username + UUID_USERMETADATA))
-	plaintext, _ := json.Marshal(um)
+	plaintext, e := json.Marshal(um)
+	if e != nil {
+		return
+	}
 	putSymData(UUID, userdata.Sk, USERMETADATA_ENC_PURPOSE, USERMETADATA_MAC_PURPOSE, plaintext)
 }
 
@@ -285,18 +302,26 @@ func (userdata *User) getFileMetadata(filename string) (fm *DatastoreFile, err e
 	if e != nil {
 		return nil, errors.New("getfilemetadata " + e.Error())
 	}
-	json.Unmarshal(plaintext, fm)
+	if e := json.Unmarshal(plaintext, fm); e != nil {
+		return nil, e
+	}
 	return
 }
 
 func (userdata *User) putFileMetadata(filename string, fm *DatastoreFile) {
 	UUID, _ := uuid.FromBytes(getPurpose(userdata.Username + filename))
-	plaintext, _ := json.Marshal(fm)
+	plaintext, e := json.Marshal(fm)
+	if e != nil {
+		return
+	}
 	putSymData(UUID, userdata.Sk, FILEMETADATA_ENC_PURPOSE, FILEMETADATA_MAC_PURPOSE, plaintext)
 }
 
 func (userdata *User) putFileSecrecy(UUID uuid.UUID, filename string, recipient string, keySecrecy *KeySecrecy) {
-	plaintext, _ := json.Marshal(keySecrecy)
+	plaintext, e := json.Marshal(keySecrecy)
+	if e != nil {
+		return
+	}
 	putSymData(UUID, userdata.Sk, filename+recipient+KEY_SECRECY_ENC_PURPOSE, filename+recipient+KEY_SECRECY_MAC_PURPSOE, plaintext)
 }
 
@@ -307,7 +332,9 @@ func (userdata *User) getFileSecrecy(UUID uuid.UUID, filename string, recipient 
 	if e != nil {
 		return nil, e
 	}
-	json.Unmarshal(plaintext, ks)
+	if e := json.Unmarshal(plaintext, ks); e != nil {
+		return nil, e
+	}
 	return
 }
 
@@ -321,16 +348,20 @@ func (userdata *User) getRecordBook(UUID uuid.UUID, purpose []byte, sk []byte, s
 	if e != nil {
 		return nil, e
 	}
-	json.Unmarshal(plaintext, rb)
+	if e := json.Unmarshal(plaintext, rb); e != nil {
+		return nil, e
+	}
 	return
 }
 
 func (userdata *User) putRecordBook(UUID uuid.UUID, purpose []byte, rb *RecordBook, sk []byte, shared bool) {
-	plaintext, _ := json.Marshal(rb)
+	plaintext, e := json.Marshal(rb)
+	if e != nil {
+		return
+	}
 	if !shared {
 		sk, _ = userlib.HashKDF(userdata.Sk[:16], purpose)
 	}
-	userlib.DebugMsg("putrecordbook: purpose: %v uuid: %v", purpose, UUID)
 	putSymData(UUID, sk, RECORD_BOOK_ENC_PURPOSE, RECORD_BOOK_MAC_PURPOSE, plaintext)
 }
 
@@ -371,11 +402,11 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 	// Check uniqueness
-	UUID, _ := uuid.FromBytes(getPurpose(username + UUID_PASSWD))
-	if _, ok := userlib.DatastoreGet(UUID); ok != false {
-		userlib.DebugMsg("InitUser: User already exists")
+	if _, ok := userlib.KeystoreGet(username + PASSWD_K); ok {
 		return nil, errors.New("User exists")
 	}
+	// get UUID for userverification
+	// UUID, _ := uuid.FromBytes(getPurpose(username + UUID_PASSWD))
 	// 2 pairs of Access token keys
 	atSignSk, atSignPk, _ := userlib.DSKeyGen()
 	atEncPk, atEncSk, _ := userlib.PKEKeyGen()
@@ -407,7 +438,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userMetaData.ATokenDecSk = atEncSk
 	userMetaData.ATokenSignSK = atSignSk
 	userdataptr.putUserMetadata(&userMetaData)
-	// TODO: store public keys in keystore
 	userlib.KeystoreSet(username+PASSWD_K, pwVerifyKey)
 	return userdataptr, nil
 }
@@ -440,8 +470,10 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 // The plaintext of the filename + the plaintext and length of the filename
 // should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
+	if userdata == nil {
+		return
+	}
 	// get datastore user to check whether file exists and get purpose
-	userlib.SetDebugStatus(true)
 	um, e := userdata.getUserMetadata()
 	if e != nil {
 		return
@@ -525,10 +557,8 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		keyPair := um.SharedFileSecrecyKeypairs[filek]
 		ks, e := userdata.getFileSecrecy(secrecyUUID, "", "", keyPair, true)
 		if e != nil {
-			userlib.DebugMsg("Appendfile shared secrecy not found")
-			return
+			return e
 		}
-		userlib.DebugMsg("appendfile->shared file: enck: %v, deck: %v", keyPair[0], keyPair[1])
 		rbUUID = ks.UUID
 		if e != nil {
 			return e
@@ -560,10 +590,14 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 //
 // It should give an error if the file is corrupted in any way.
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
+	if userdata == nil {
+		return nil, errors.New("Bad userdata ptr")
+	}
 	um, e := userdata.getUserMetadata()
 	if e != nil {
 		return nil, e
 	}
+
 	filek := mapKey(filename)
 	purpose, ok := um.OwnedFilePurpose[mapKey(filename)]
 	var rb *RecordBook
@@ -594,14 +628,12 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		if e != nil {
 			return nil, errors.New("> getFileMetadata " + e.Error())
 		}
-		userlib.DebugMsg("> revokefile call getrecordbook: purpose: %v uuid: %v", purpose, fm.RecordUUID)
 		rb, e = userdata.getRecordBook(fm.RecordUUID, purpose, nil, false)
 		if e != nil {
 			return nil, errors.New("> getRecordBook " + e.Error())
 		}
 	}
 	for i, UUID := range rb.Records {
-		userlib.DebugMsg("Load file part %v", i)
 		d, e := userdata.getFilePart(UUID, purpose, sk, i, shared)
 		if e != nil {
 			return nil, errors.New("> getFilePart " + strconv.Itoa(i))
@@ -623,6 +655,9 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 // should be able to know the sender.
 func (userdata *User) ShareFile(filename string, recipient string) (
 	magic_string string, err error) {
+	if userdata == nil {
+		return
+	}
 	// check file existence
 	var obj DataDS
 	var at AccessToken
@@ -659,14 +694,15 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 		if at.UUID, ok = um.SharedFileSecrecyUUIDs[mapKey(filename)]; !ok {
 			return "", errors.New("Failed to find file " + filename)
 		}
+		if _, e = userdata.getFileSecrecy(at.UUID, "", "", um.SharedFileSecrecyKeypairs[mapKey(filename)], true); e != nil {
+			return "", errors.New("File has been revoked")
+		}
 		at.SecrecyDecKey = um.SharedFileSecrecyKeypairs[mapKey(filename)][0]
 		at.SecrecyMacKey = um.SharedFileSecrecyKeypairs[mapKey(filename)][1]
 		at.SecrecyDecKey = at.SecrecyDecKey[:16]
 		at.SecrecyMacKey = at.SecrecyMacKey[:16]
 	}
-	userlib.DebugMsg("> sharefile: secrecy uuid: %v, len: %v", at.UUID, len(at.UUID.String()))
 	_at := at.UUID.String() + string(at.SecrecyDecKey[:]) + string(at.SecrecyMacKey[:])
-	userlib.DebugMsg("uuid string: %v", _at)
 	if encPk, ok = userlib.KeystoreGet(recipient + AT_ENC_K); !ok {
 		return "", errors.New("Failed to get recipient's enc Pk")
 	}
@@ -675,8 +711,10 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 		return "", errors.New("Failed to encrypt " + e.Error() + " ")
 	}
 	obj.Verifytext, _ = userlib.DSSign(um.ATokenSignSK, obj.Ciphertext)
-	msg, _ := json.Marshal(&obj)
-	userlib.DebugMsg("sharefile enckey; %v\nmackey: %v", at.SecrecyDecKey, at.SecrecyMacKey)
+	msg, e := json.Marshal(&obj)
+	if e != nil {
+		return "", errors.New("Failed to marshal data")
+	}
 	return hex.EncodeToString(msg), nil
 }
 
@@ -685,11 +723,18 @@ func (userdata *User) ShareFile(filename string, recipient string) (
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
 func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) error {
+	if userdata == nil {
+		return errors.New("Bad userdata ptr")
+	}
 	var msg DataDS
 	var at AccessToken
-	data, _ := hex.DecodeString(magic_string)
-	if json.Unmarshal(data, &msg) != nil {
-		userlib.DebugMsg("Fail to unmarshal")
+	data, e := hex.DecodeString(magic_string)
+	if e != nil {
+		return e
+	}
+	e = json.Unmarshal(data, &msg)
+	if e != nil {
+		return e
 	}
 	// use public key to verify
 	verifyKey, ok := userlib.KeystoreGet(sender + AT_SIGN_K)
@@ -709,8 +754,6 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	at.UUID, _ = uuid.Parse(s[:36])
 	at.SecrecyDecKey = []byte(s[36:52])
 	at.SecrecyMacKey = []byte(s[52:68])
-	userlib.DebugMsg("> Receive data: shared key secrecy: %v", string(_at))
-	userlib.DebugMsg("> Receive data: key secrecy uuid: %v", at.UUID.String())
 	// update user metadata
 	filek := mapKey(filename)
 	if _, ok := um.OwnedFilePurpose[filek]; ok {
@@ -721,13 +764,15 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 	}
 	um.SharedFileSecrecyUUIDs[filek] = at.UUID
 	um.SharedFileSecrecyKeypairs[filek] = [2][]byte{at.SecrecyDecKey[:], at.SecrecyMacKey[:]}
-	userlib.DebugMsg("receive file enckey:%v \nmackey:%v", at.SecrecyDecKey, at.SecrecyMacKey)
 	userdata.putUserMetadata(um)
 	return nil
 }
 
 // Removes target user's access.
 func (userdata *User) RevokeFile(filename string, target_username string) (err error) {
+	if userdata == nil {
+		return errors.New("Bad userdata ptr")
+	}
 	var newPurpose = userlib.RandomBytes(PURPOSE_LEN)
 	newSk, _ := userlib.HashKDF(userdata.Sk[:16], newPurpose)
 	var newRBUUID = uuid.New()
@@ -745,6 +790,9 @@ func (userdata *User) RevokeFile(filename string, target_username string) (err e
 	if e != nil {
 		return e
 	}
+	if _, ok := fm.SharedUser[target_username]; !ok {
+		return errors.New("Not direct shared user")
+	}
 	f, e := userdata.LoadFile(filename)
 	if e != nil {
 		return e
@@ -754,6 +802,7 @@ func (userdata *User) RevokeFile(filename string, target_username string) (err e
 	um.OwnedFilePurpose[mapKey(filename)] = newPurpose
 	// file metadata
 	fm.RecordUUID = newRBUUID
+	userlib.DatastoreDelete(fm.SharedUser[target_username])
 	delete(fm.SharedUser, target_username)
 	userdata.putFileMetadata(filename, fm)
 	// record book
@@ -761,18 +810,8 @@ func (userdata *User) RevokeFile(filename string, target_username string) (err e
 	rb.Records = append(rb.Records, uuid.New())
 	userdata.putUserMetadata(um)
 	userdata.putFileMetadata(filename, fm)
-	userlib.DebugMsg("======================================")
 	userdata.putRecordBook(fm.RecordUUID, newPurpose, &rb, nil, false)
-
-	rb2, e := userdata.getRecordBook(fm.RecordUUID, newPurpose, nil, false)
-	if e != nil {
-		userlib.DebugMsg("Failed to get record book" + e.Error())
-		return
-	}
-	userlib.DebugMsg("> rb[0]: %v", rb2.Records[0])
-	userlib.DebugMsg("======================================")
-
-	// test！！！！！！
+	// update file
 	userdata.putFilePart(rb.Records[0], newPurpose, 0, f, nil, false)
 	// update other shared user's secrecy
 	for username, UUID := range fm.SharedUser {
